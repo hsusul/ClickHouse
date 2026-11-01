@@ -287,8 +287,6 @@ void Loggers::buildLoggers(
         String text_log_level_str = config.getString("text_log.level", "trace");
         int text_log_level = Poco::Logger::parseLevel(text_log_level_str);
 
-        // Same rule as in updateLevels: an explicitly configured text_log.level takes part in the
-        // root level, so startup messages reach text_log; an unset level keeps the previous behaviour.
         if (config.has("text_log.level"))
             max_log_level = std::max(text_log_level, max_log_level);
 
