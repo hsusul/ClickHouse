@@ -11,7 +11,7 @@ It targets the class of bugs where ClickHouse silently returns different data th
 3. After every executed operation the writer reads the table back with its own reader (Spark, PyIceberg, delta-rs). `oracle.Oracle` compares ClickHouse with that read on every ClickHouse source of the table:
    - `content`: the full row multiset,
    - `count`: `count()` with and without `optimize_trivial_count_query`,
-   - `aggregates`: `count(c)`, `min(c)`, `max(c)`,
+   - `aggregates`: `count(c)`, `minOrNull(c)`, `maxOrNull(c)`,
    - `filter`: rows and `count()` under random predicates (`NOT`, `AND`, `OR`, `IN`, `BETWEEN`, `IS NULL`, comparisons), evaluated in Python with SQL three-valued logic,
    - `time_travel`: an older live snapshot through `iceberg_snapshot_id` or `delta_lake_snapshot_version`.
 

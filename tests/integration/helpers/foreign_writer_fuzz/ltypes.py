@@ -361,12 +361,14 @@ class LType:
                 )
             )
         if k == "struct":
+            if hasattr(v, "asDict"):
+                v = v.asDict()
             if isinstance(v, dict):
-                values = list(v.values())
-            elif hasattr(v, "asDict"):
-                values = list(v.asDict().values())
-            else:
-                values = list(v)
+                # Match fields by name: a reader that swaps the values of two fields must not compare equal.
+                if sorted(v) != sorted(n for n, _ in self.fields):
+                    return ("<struct fields mismatch>", tuple(sorted(map(repr, v))))
+                return tuple(t.canon(v[n]) for n, t in self.fields)
+            values = list(v)
             if len(values) != len(self.fields):
                 return ("<struct arity mismatch>", tuple(map(repr, values)))
             return tuple(t.canon(x) for (_, t), x in zip(self.fields, values))

@@ -308,10 +308,10 @@ class Oracle:
             expected.append(len(values))
             out_columns.append((f"count_{len(exprs)}", LType("long")))
             if t.kind in ORDERABLE_KINDS:
-                exprs.append(f"min({q(name)})")
+                exprs.append(f"minOrNull({q(name)})")
                 expected.append(min(values) if values else None)
                 out_columns.append((f"min_{len(exprs)}", t))
-                exprs.append(f"max({q(name)})")
+                exprs.append(f"maxOrNull({q(name)})")
                 expected.append(max(values) if values else None)
                 out_columns.append((f"max_{len(exprs)}", t))
         if not exprs:
@@ -319,14 +319,8 @@ class Oracle:
         sql = f"SELECT {', '.join(f'{e} AS {n}' for e, (n, _) in zip(exprs, out_columns))} FROM {source.expression}"
         settings = self.settings_variant(rng, source.family)
         rows = self._run_rows(sql, out_columns, settings, source, "aggregates")
+        # `minOrNull`/`maxOrNull`: NULL over no values for the non-nullable `id` too, so every result is checked.
         actual = list(rows[0]) if rows else []
-        # `min`/`max` over no values is NULL for a `Nullable` column but the default for the non-nullable `id`.
-        ignore = {
-            i
-            for i, (e, x) in enumerate(zip(exprs, expected))
-            if x is None and not e.startswith("count")
-        }
-        actual = [None if i in ignore else a for i, a in enumerate(actual)]
         if actual != expected:
             mismatches = [
                 f"{e}: ClickHouse {a!r}, writer {x!r}"

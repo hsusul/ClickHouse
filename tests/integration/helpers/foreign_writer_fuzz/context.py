@@ -26,6 +26,7 @@ BASE_SETTINGS = {
 
 # A query of the harness touches a handful of small files; anything slower is a hang worth reporting.
 QUERY_TIMEOUT = 300
+HEALTH_TIMEOUT = 10
 
 
 class ClickHouseQueryError(Exception):
@@ -201,6 +202,6 @@ class FuzzContext:
 
     def server_alive(self):
         try:
-            return self.node.http_query("SELECT 1").strip() == "1"
+            return self.node.http_query("SELECT 1", timeout=HEALTH_TIMEOUT).strip() == "1"
         except Exception:
             return False

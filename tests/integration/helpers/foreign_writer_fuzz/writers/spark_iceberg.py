@@ -158,11 +158,11 @@ class SparkIcebergWriter(Writer):
                 f"UPDATE {self.ident} SET {set_clause(op['column'], payload['type'], payload['value'])} WHERE {where(op['predicate'])}"
             )
         elif kind == "merge":
-            view = temp_view(self.spark, cols, payload["rows"])
-            sql(
-                f"MERGE INTO {self.ident} t USING {view} s ON t.{q(ID_COLUMN)} = s.{q(ID_COLUMN)} "
-                f"WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *"
-            )
+            with temp_view(self.spark, cols, payload["rows"]) as view:
+                sql(
+                    f"MERGE INTO {self.ident} t USING {view} s ON t.{q(ID_COLUMN)} = s.{q(ID_COLUMN)} "
+                    f"WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *"
+                )
         elif kind == "add_column":
             from ..ltypes import LType
 

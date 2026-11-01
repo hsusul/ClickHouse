@@ -150,6 +150,8 @@ def run_history(ctx, history, deadline=None, oracle=None, check_every_step=True)
                         f"ClickHouse failed with a server bug executing {label}: {str(e)[:3000]}",
                         {"source": "writer"},
                     )
+                # A write that kills the server can fail with only a transport error.
+                _check_server_log(ctx, log_line, label)
                 result.rejected.append(f"{label}: {str(e).splitlines()[0][:300]}")
                 log.info("Rejected %s: %s", label, str(e)[:500])
                 continue
@@ -186,6 +188,9 @@ def run_history(ctx, history, deadline=None, oracle=None, check_every_step=True)
                 len(expected),
                 content_hash(expected),
             )
+        if not result.truncated:
+            # Unchecked trailing operations (rejected or not checkable) must not hide a server failure.
+            _check_server_log(ctx, log_line, "the last operation")
         result.failed_op_index = None
     except FuzzFailure as failure:
         result.failure = failure
@@ -214,19 +219,27 @@ def _check_time_travel(writer, oracle, snapshots, current_ref, rng, label):
         del snapshots[dead]
     if not live:
         return
-    ref = rng.choice(sorted(live))
+    # Snapshot IDs are random per run, so choose in the order the snapshots were taken (dict insertion
+    # order) to keep the choice reproducible on replay and while shrinking.
+    live = set(live)
+    ref = rng.choice([r for r in snapshots if r in live])
     columns, rows = snapshots[ref]
     settings = writer.time_travel_settings(ref)
     if settings:
-        oracle.check(
-            writer,
-            columns,
-            rows,
-            rng,
-            f"{label} (time travel to {ref})",
-            deep=False,
-            extra_settings=settings,
-        )
+        try:
+            oracle.check(
+                writer,
+                columns,
+                rows,
+                rng,
+                f"{label} (time travel to {ref})",
+                deep=False,
+                extra_settings=settings,
+            )
+        except FuzzFailure as e:
+            # Any failure here (including a `query_error`) needs the earlier snapshots to reproduce.
+            e.details["time_travel"] = True
+            raise
 
 
 def _check_server_log(ctx, line, label):
@@ -277,7 +290,7 @@ def shrink(ctx, history, failure, deadline):
                 ctx,
                 candidate,
                 deadline=deadline,
-                check_every_step=failure.kind == "time_travel",
+                check_every_step=bool(failure.details.get("time_travel")),
             )
             if r.failure is not None and r.failure.signature() == signature:
                 best = (

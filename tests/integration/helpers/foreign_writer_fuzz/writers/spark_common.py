@@ -1,5 +1,6 @@
 """Spark helpers shared by the Spark-based writer adapters."""
 
+import contextlib
 import datetime
 import itertools
 
@@ -29,10 +30,15 @@ def dataframe(spark, columns, rows, num_partitions=1):
     return df
 
 
+@contextlib.contextmanager
 def temp_view(spark, columns, rows):
+    """A session temp view over `rows`, dropped on exit so the shared session does not keep the data."""
     name = f"fwf_src_{next(_view_counter)}"
     dataframe(spark, columns, rows).createOrReplaceTempView(name)
-    return name
+    try:
+        yield name
+    finally:
+        spark.catalog.dropTempView(name)
 
 
 def where(pred_json):
