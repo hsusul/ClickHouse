@@ -1,54 +1,30 @@
-TSV, variable number of columns, empty_as_default
+TSV
 a	0	
 a	0	
-TSV, variable number of columns, no empty_as_default
 a	0	
 a	0	
-TSV, Nullable column
+a	1970-01-01	
+a	1970-01-01	
+a	\N	
+a	\N	
+a	[]	
+a	[]	
+a	1	1970-01-01	0
+b	0	1970-01-01	0
+a	0	
+CSV
 a	0	
 a	0	
-TSV, several missing columns
-a	0		0
-a	0		0
-TSV, several rows
-a	1	x
-b	0	
-a	1	x
-b	0	
-TSVWithNames
 a	0	
 a	0	
-TSV, fixed number of columns, empty last field
-a	0
-a	0
-TSVRaw
-a		0
-a		0
-a	0
-a	0
-CSV, variable number of columns, empty_as_default
+a	1970-01-01	
+a	1970-01-01	
+a	\N	
+a	\N	
+a	[]	
+a	[]	
+a	1	1970-01-01	0
+b	0	1970-01-01	0
 a	0	
-a	0	
-CSV, variable number of columns, no empty_as_default
-a	0	
-a	0	
-CSV, Nullable column
-a	0	
-a	0	
-CSV, several missing columns
-a	0		0
-a	0		0
-CSV, whitespace after the delimiter
-a	0	
-a	0	
-CSVWithNames
-a	0	
-a	0	
-CSV, fixed number of columns, empty last field
-a	0
-a	0
-String columns only, already worked
-a		
-a		
-a		
-a		
+REQUEST		Home	1765188115675	1765188115886	OK	
+REQUEST		Home	0	0		
