@@ -72,6 +72,19 @@ ColumnPtr deserialize(const DataTypePtr & type, const Streams & streams, size_t 
     return column;
 }
 
+void expectIncorrectData(const DataTypePtr & type, const Streams & streams, size_t rows)
+{
+    try
+    {
+        deserialize(type, streams, rows);
+        FAIL() << "accepted an index past the keys";
+    }
+    catch (const Exception & e)
+    {
+        ASSERT_EQ(e.code(), ErrorCodes::INCORRECT_DATA) << e.message();
+    }
+}
+
 /// Calls `check` for `LowCardinality(String)` and `LowCardinality(Nullable(UInt64))`, each serialized with a dictionary
 /// of 2 keys (so most values become additional keys) and with one large enough for all values (no additional keys).
 template <typename Check>
@@ -134,19 +147,33 @@ TEST(SerializationLowCardinality, IndexPastTheKeysIsRejected)
     MainThreadStatus::getInstance();
     forEachCase([](const DataTypePtr & type, const IColumn & column, Streams streams, UInt64 num_keys, size_t index_width)
     {
-        /// The last index of the stream (the last row) becomes the first value past the keys.
+        const size_t rows = column.size();
+        const size_t indexes_begin = streams.indexes.size() - rows * index_width;
+
+        /// The same indexes as `UInt64` (index type 3, the low byte of the index type) read back the same values...
+        Streams wide{streams.keys, streams.indexes.substr(0, indexes_begin)};
+        wide.indexes[0] = 3;
+        for (size_t row = 0; row < rows; ++row)
+        {
+            UInt64 index = 0;
+            for (size_t i = 0; i < index_width; ++i)
+                index |= UInt64(static_cast<UInt8>(streams.indexes[indexes_begin + row * index_width + i])) << (8 * i);
+            for (size_t i = 0; i < 8; ++i)
+                wide.indexes.push_back(static_cast<char>(index >> (8 * i)));
+        }
+        auto result = deserialize(type, wide, rows);
+        ASSERT_EQ(result->size(), rows);
+        for (size_t row = 0; row < rows; ++row)
+            ASSERT_EQ((*result)[row], column[row]) << "row " << row;
+
+        /// ...and the largest possible last index is rejected before `mapIndexWithAdditionalKeys` sizes its overflow map by it.
+        std::fill(wide.indexes.end() - 8, wide.indexes.end(), '\xff');
+        expectIncorrectData(type, wide, rows);
+
+        /// The last index of the original stream becomes the first value past the keys.
         ASSERT_LE(num_keys, std::numeric_limits<UInt64>::max() >> (64 - 8 * index_width));
         for (size_t i = 0; i < index_width; ++i)
             streams.indexes[streams.indexes.size() - index_width + i] = static_cast<char>(num_keys >> (8 * i));
-
-        try
-        {
-            deserialize(type, streams, column.size());
-            FAIL() << "accepted an index past the keys";
-        }
-        catch (const Exception & e)
-        {
-            ASSERT_EQ(e.code(), ErrorCodes::INCORRECT_DATA) << e.message();
-        }
+        expectIncorrectData(type, streams, rows);
     });
 }
