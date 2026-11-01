@@ -6,6 +6,7 @@
 #include <Common/checkStackSize.h>
 #include <Common/OptimizedRegularExpression.h>
 
+#include <Common/RegexpUtils.h>
 #include <Common/StringSearcher.h>
 #include <Common/StringUtils.h>
 #include <Common/UTF8Helpers.h>
@@ -383,6 +384,11 @@ const char * analyzeImpl(
                 if (isEscapedLiteral(*pos))
                     goto ordinary;
 
+                /// An empty `\Q\E` quote is zero-width, so a quantifier after it applies to the character before it.
+                if (depth == 0 && !in_square_braces && !last_substring->first.empty()
+                    && DB::isZeroAllowingQuantifier(DB::skipZeroWidthConstructs(pos - 1, end), end))
+                    DB::dropLastLiteral(last_substring->first);
+
                 /// Consume the whole escape, so its argument bytes are not taken as a literal (issue #106382).
                 finish_non_trivial_char();
                 pos = skipUnsupportedEscape(pos, end);
@@ -415,8 +421,8 @@ const char * analyzeImpl(
                     {
                         return x == '-' || x == 'i' || x == 'm' || x == 's' || x == 'U' || x == 'u';
                     };
-                    /// Check for case-insensitive flag.
-                    if (pos + 2 < end && pos[1] == '?' && is_flag_char(pos[2]))
+                    /// A flag group, `(?flags)` or `(?flags:regex)`. re2 also accepts an empty flag list, `(?)`.
+                    if (pos + 2 < end && pos[1] == '?' && (is_flag_char(pos[2]) || pos[2] == ')'))
                     {
                         size_t offset = 2;
                         for (; pos + offset < end; ++offset)
@@ -471,8 +477,7 @@ const char * analyzeImpl(
                     has_capture = has_capture || group_has_capture || !is_non_capturing_group;
 
                     /// For ()? or ()* or (){0,1}, we can just ignore the whole group.
-                    if ((pos + 1 < end && (pos[1] == '?' || pos[1] == '*')) ||
-                        (pos + 2 < end && pos[1] == '{' && pos[2] == '0'))
+                    if (DB::isZeroAllowingQuantifier(DB::skipZeroWidthConstructs(pos + 1, end), end))
                     {
                         finish_non_trivial_char();
                     }
@@ -549,7 +554,7 @@ const char * analyzeImpl(
             case '*':
                 if (depth == 0 && !last_substring->first.empty() && !in_square_braces)
                 {
-                    last_substring->first.resize(last_substring->first.size() - 1);
+                    DB::dropLastLiteral(last_substring->first);
                 }
                 finish_non_trivial_char();
                 ++pos;
