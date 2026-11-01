@@ -163,40 +163,35 @@ std::vector<String> TabSeparatedFormatReader::readRowImpl()
 }
 
 bool TabSeparatedFormatReader::readField(IColumn & column, const DataTypePtr & type,
-    const SerializationPtr & serialization, bool is_last_file_column, const String & /*column_name*/, size_t /*column_index*/)
+    const SerializationPtr & serialization, bool /*is_last_file_column*/, const String & /*column_name*/, size_t /*column_index*/)
 {
-    const bool at_delimiter = !is_last_file_column && !buf->eof() && *buf->position() == '\t';
-    const bool at_last_column_line_end = is_last_file_column && (buf->eof() || *buf->position() == '\n' || (format_settings.tsv.crlf_end_of_line_input && *buf->position() == '\r'));
+    /// A field is empty if it is followed by the field delimiter or the end of the row.
+    /// The row can end before the last file column with `input_format_tsv_allow_variable_number_of_columns`.
+    const bool is_empty_field = buf->eof() || *buf->position() == '\t' || *buf->position() == '\n'
+        || (format_settings.tsv.crlf_end_of_line_input && *buf->position() == '\r');
 
-    if (format_settings.tsv.empty_as_default && (at_delimiter || at_last_column_line_end))
+    if (format_settings.tsv.empty_as_default && is_empty_field)
     {
         column.insertDefault();
         return false;
     }
-
-    /// Read an empty field after a trailing tab as if a line end followed, as for input with a final newline.
-    /// Reading it at EOF fails for some types, e.g. integers throw ATTEMPT_TO_READ_AFTER_EOF.
-    std::optional<ReadBufferFromMemory> line_end;
-    ReadBuffer * istr = buf;
-    if (buf->eof()) [[unlikely]]
-        istr = &line_end.emplace("\n", 1);
 
     bool as_nullable = format_settings.null_as_default && !isNullableOrLowCardinalityNullable(type);
 
     if (is_raw)
     {
         if (as_nullable)
-            return SerializationNullable::deserializeNullAsDefaultOrNestedTextRaw(column, *istr, format_settings, serialization);
+            return SerializationNullable::deserializeNullAsDefaultOrNestedTextRaw(column, *buf, format_settings, serialization);
 
-        serialization->deserializeTextRaw(column, *istr, format_settings);
+        serialization->deserializeTextRaw(column, *buf, format_settings);
         return true;
     }
 
 
     if (as_nullable)
-        return SerializationNullable::deserializeNullAsDefaultOrNestedTextEscaped(column, *istr, format_settings, serialization);
+        return SerializationNullable::deserializeNullAsDefaultOrNestedTextEscaped(column, *buf, format_settings, serialization);
 
-    serialization->deserializeTextEscaped(column, *istr, format_settings);
+    serialization->deserializeTextEscaped(column, *buf, format_settings);
     return true;
 }
 
