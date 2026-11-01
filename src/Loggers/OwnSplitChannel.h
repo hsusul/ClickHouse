@@ -210,6 +210,11 @@ private:
     std::unique_ptr<OwnRunnableForTextLog> text_log_runnable;
     std::weak_ptr<DB::TextLogQueue> text_log;
     std::atomic<int> text_log_max_priority = 0;
+    /// Set by the first `open` that starts the text_log consumer (the level was not `none` then) and never
+    /// cleared. Distinguishes an absent consumer from a running one whose level was later reloaded to `none`:
+    /// the latter must still serve flushes for messages accepted before the reload, and must be restarted
+    /// by `open` after `remapExecutable` so the level can be raised again on a later reload.
+    std::atomic<bool> text_log_has_consumer = false;
 };
 
 
