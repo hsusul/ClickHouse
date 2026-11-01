@@ -407,6 +407,14 @@ bool CSVFormatReader::readField(
 
     if (format_settings.csv.use_default_on_bad_values)
         return readFieldOrDefault(column, type, serialization);
+
+    /// Read an empty field after a trailing delimiter as if a line end followed, as for input with a final newline.
+    /// Reading it at EOF fails for some types, e.g. integers throw ATTEMPT_TO_READ_AFTER_EOF.
+    if (buf->eof()) [[unlikely]]
+    {
+        ReadBufferFromMemory line_end("\n", 1);
+        return readFieldImpl(line_end, column, type, serialization);
+    }
     return readFieldImpl(*buf, column, type, serialization);
 }
 

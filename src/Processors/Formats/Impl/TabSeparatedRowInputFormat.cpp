@@ -174,22 +174,29 @@ bool TabSeparatedFormatReader::readField(IColumn & column, const DataTypePtr & t
         return false;
     }
 
+    /// Read an empty field after a trailing tab as if a line end followed, as for input with a final newline.
+    /// Reading it at EOF fails for some types, e.g. integers throw ATTEMPT_TO_READ_AFTER_EOF.
+    std::optional<ReadBufferFromMemory> line_end;
+    ReadBuffer * istr = buf;
+    if (buf->eof()) [[unlikely]]
+        istr = &line_end.emplace("\n", 1);
+
     bool as_nullable = format_settings.null_as_default && !isNullableOrLowCardinalityNullable(type);
 
     if (is_raw)
     {
         if (as_nullable)
-            return SerializationNullable::deserializeNullAsDefaultOrNestedTextRaw(column, *buf, format_settings, serialization);
+            return SerializationNullable::deserializeNullAsDefaultOrNestedTextRaw(column, *istr, format_settings, serialization);
 
-        serialization->deserializeTextRaw(column, *buf, format_settings);
+        serialization->deserializeTextRaw(column, *istr, format_settings);
         return true;
     }
 
 
     if (as_nullable)
-        return SerializationNullable::deserializeNullAsDefaultOrNestedTextEscaped(column, *buf, format_settings, serialization);
+        return SerializationNullable::deserializeNullAsDefaultOrNestedTextEscaped(column, *istr, format_settings, serialization);
 
-    serialization->deserializeTextEscaped(column, *buf, format_settings);
+    serialization->deserializeTextEscaped(column, *istr, format_settings);
     return true;
 }
 
