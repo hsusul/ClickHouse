@@ -5,6 +5,7 @@ SET enable_analyzer = 1;
 SET optimize_empty_string_comparisons = 1;
 SET use_skip_indexes = 1;
 SET use_skip_indexes_on_data_read = 0;
+SET enable_parallel_replicas = 0; -- The plan of `EXPLAIN indexes` differs with parallel replicas.
 
 DROP TABLE IF EXISTS t_lc_empty;
 DROP TABLE IF EXISTS t_lc_fixed_empty;
