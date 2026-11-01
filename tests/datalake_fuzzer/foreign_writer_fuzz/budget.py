@@ -1,6 +1,8 @@
-"""Run budget from the environment: a short deterministic run per PR, a long one in fuzz mode.
+"""Run budget from the environment: a short deterministic smoke run by default, a long one in fuzz mode.
 
-| Variable                             | PR default | Meaning                                                    |
+The nightly job (`ci/jobs/datalake_fuzzer_job.py`, `NIGHTLY_BUDGET`) sets a long budget with random seeds.
+
+| Variable                             | Default    | Meaning                                                    |
 |--------------------------------------|------------|------------------------------------------------------------|
 | `FOREIGN_WRITER_FUZZ_SEEDS`          | 1          | histories per writer                                       |
 | `FOREIGN_WRITER_FUZZ_BASE_SEED`      | 0          | first seed; `random` draws one (printed in the log)        |

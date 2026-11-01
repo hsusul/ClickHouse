@@ -5,10 +5,11 @@ Spark Paimon, and ClickHouse writing Iceberg and Delta), seeded random histories
 overwrites, row-level deletes, updates, merges, schema and partition evolution, compaction and
 snapshot expiry are executed by the writer. After each step ClickHouse must return exactly what the
 writer's own reader returns: content, counts, aggregates, filtered reads under random predicates
-and read settings, and time travel. See `helpers/foreign_writer_fuzz/README.md`.
+and read settings, and time travel. See `README.md` in this directory.
 
-A PR run uses a few fixed seeds per writer and a short time budget; set `FOREIGN_WRITER_FUZZ_*`
-(see `helpers/foreign_writer_fuzz/budget.py`) for a long fuzzing run or to replay a failure.
+Without settings it runs one fixed seed per writer with a short time budget, as a smoke test. The
+nightly job `ci/jobs/datalake_fuzzer_job.py` sets `FOREIGN_WRITER_FUZZ_*` (see
+`foreign_writer_fuzz/budget.py`) for a long run with random seeds; they also replay a failure.
 """
 
 import json
@@ -17,7 +18,7 @@ import time
 
 import pytest
 
-from helpers.foreign_writer_fuzz import (
+from foreign_writer_fuzz import (
     WRITERS,
     failure_report,
     load_budget,

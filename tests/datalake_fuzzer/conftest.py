@@ -1,18 +1,38 @@
 import logging
+import os
+import sys
 import time
 
 import pytest
 
+# The fuzzer runs on the integration test harness (`helpers.cluster` and friends) but is not part of
+# the integration test suite, so that harness is imported from `tests/integration`.
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "integration")
+)
+
 # Before importing pyspark: prevents a lot of log spam.
 logging.getLogger("py4j").setLevel(logging.ERROR)
 
-from helpers.cluster import ClickHouseCluster
+from helpers.cluster import ClickHouseCluster, run_and_check
 from helpers.config_cluster import minio_access_key, minio_secret_key
-from helpers.foreign_writer_fuzz import FuzzContext, Gates
-from helpers.foreign_writer_fuzz.spark_session import build_spark
+from foreign_writer_fuzz import FuzzContext, Gates
+from foreign_writer_fuzz.spark_session import build_spark
 from helpers.s3_tools import S3Uploader, prepare_s3_bucket
 
 REST_CATALOG_DATABASE = "fwf_rest"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def tune_local_port_range():
+    # As `tests/integration/conftest.py`, whose fixtures do not apply outside the integration suite:
+    # MinIO and the catalog use non-privileged ports, and the default range leads to EADDRNOTAVAIL.
+    try:
+        run_and_check(["sysctl net.ipv4.ip_local_port_range='55000 65535'"], shell=True)
+    except Exception as ex:
+        logging.warning(
+            "Failed to run sysctl, the fuzzer may fail with EADDRINUSE: %s", ex
+        )
 
 
 def _load_rest_catalog(cluster, deadline):

@@ -23,6 +23,9 @@ from .writers import WRITERS, ForeignReadError
 
 log = logging.getLogger("foreign_writer_fuzz")
 
+# The job of `ci/defs/job_configs.py` that runs the fuzzer, for the replay command of a report.
+REPLAY_JOB = "Data lake fuzzer (arm_release)"
+
 SERVER_BUG_MARKERS = ("LOGICAL_ERROR", "Logical error", "Received signal", "Sanitizer")
 
 
@@ -348,7 +351,7 @@ def failure_report(result, report_dir=None, shrunk=None):
         f"Rejected by the writer: {result.rejected[:10]}",
         "",
         "Replay (from the repository root):",
-        f"  python -m ci.praktika run integration --test test_datalake_foreign_writer_fuzz/test.py::test_replay --param FOREIGN_WRITER_FUZZ_REPLAY={path or '<history.json>'}",
+        f"  python -m ci.praktika run '{REPLAY_JOB}' --workflow NightlySQLancer --test test_fuzz.py::test_replay --param FOREIGN_WRITER_FUZZ_REPLAY={path or '<history.json>'}",
         f"  or regenerate it: --param FOREIGN_WRITER_FUZZ_WRITERS={history['writer']},FOREIGN_WRITER_FUZZ_SEED_LIST={history['seed']}",
         "History JSON:",
         dumps_history(minimal),

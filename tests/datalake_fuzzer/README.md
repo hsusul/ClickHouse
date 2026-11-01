@@ -1,6 +1,6 @@
 # Foreign writer fuzzing for data lake tables
 
-A seeded, reproducible differential fuzzer for data lake tables written by other tools and read by ClickHouse, and for tables written by ClickHouse and read by other tools. The test module is `tests/integration/test_datalake_foreign_writer_fuzz`; this directory is the reusable library.
+A seeded, reproducible differential fuzzer for data lake tables written by other tools and read by ClickHouse, and for tables written by ClickHouse and read by other tools. It is a standalone tool, not part of the integration test suite: `test_fuzz.py` and `conftest.py` in this directory drive it with pytest on top of the integration test harness (`tests/integration/helpers`), and `foreign_writer_fuzz/` is the library. It runs nightly in the `NightlySQLancer` workflow, next to SQLancer, as the `Data lake fuzzer` jobs (`ci/jobs/datalake_fuzzer_job.py`) on a release and an ASan/UBSan build, with fresh random seeds and about 20 minutes per writer.
 
 It targets the class of bugs where ClickHouse silently returns different data than the tool that wrote the table, or crashes on a table shape that tool produces: delete files and deletion vectors, schema and partition evolution, merge-on-read, statistics-based pruning, trivial `count()` from metadata, time travel, and metadata that ClickHouse writes in a form other readers reject.
 
@@ -38,20 +38,31 @@ Not covered yet: Iceberg equality deletes (neither Spark nor PyIceberg writes th
 
 ## Running
 
+The job script starts docker-in-docker and the cluster in the integration test runner image, so run it through praktika from the repository root. It takes the binary from `ci/tmp/clickhouse`, `build/programs/clickhouse` or `--path`.
+
 ```bash
-# PR budget (fixed seeds, a few minutes):
-python -m ci.praktika run "integration" --test test_datalake_foreign_writer_fuzz
+# The nightly budget (random seeds, 20 minutes per writer, about 3 hours):
+python -m ci.praktika run "Data lake fuzzer (arm_release)" --workflow NightlySQLancer
 
-# Long fuzzing run with fresh random seeds for two writers:
-python -m ci.praktika run "integration" --test test_datalake_foreign_writer_fuzz \
-    --param FOREIGN_WRITER_FUZZ_BASE_SEED=random,FOREIGN_WRITER_FUZZ_SEEDS=200,FOREIGN_WRITER_FUZZ_OPS=25,FOREIGN_WRITER_FUZZ_TIME_BUDGET=3000,FOREIGN_WRITER_FUZZ_WRITERS=spark_iceberg,spark_delta
+# A short run for two writers with fresh random seeds:
+python -m ci.praktika run "Data lake fuzzer (arm_release)" --workflow NightlySQLancer \
+    --param FOREIGN_WRITER_FUZZ_WRITERS=spark_iceberg,spark_delta,FOREIGN_WRITER_FUZZ_TIME_BUDGET=300
 
-# Replay a failure from its saved history:
-python -m ci.praktika run "integration" --test test_datalake_foreign_writer_fuzz/test.py::test_replay \
-    --param FOREIGN_WRITER_FUZZ_REPLAY=<path to the JSON from the report>
+# The smoke budget of the defaults in `budget.py` (seed 0, 6 operations, 30 seconds per writer):
+python -m ci.praktika run "Data lake fuzzer (arm_release)" --workflow NightlySQLancer \
+    --param FOREIGN_WRITER_FUZZ_BASE_SEED=0,FOREIGN_WRITER_FUZZ_SEEDS=1,FOREIGN_WRITER_FUZZ_OPS=6,FOREIGN_WRITER_FUZZ_TIME_BUDGET=30
+
+# Replay a failure from its saved history (it is in `datalake_fuzzer_logs.tar.zst` of the job;
+# put it under the repository, e.g. `ci/tmp/`, the job runs in a container):
+python -m ci.praktika run "Data lake fuzzer (arm_release)" --workflow NightlySQLancer \
+    --test test_fuzz.py::test_replay --param FOREIGN_WRITER_FUZZ_REPLAY=ci/tmp/<history>.json
+
+# Regenerate it from the seed instead:
+python -m ci.praktika run "Data lake fuzzer (arm_release)" --workflow NightlySQLancer \
+    --param FOREIGN_WRITER_FUZZ_WRITERS=<writer>,FOREIGN_WRITER_FUZZ_SEED_LIST=<seed>
 ```
 
-All knobs are listed in `budget.py`. `FOREIGN_WRITER_FUZZ_KNOWN_ISSUES=1` opens the gates of `known_issues.py`, which otherwise steer around open ClickHouse bugs so that the PR run stays green; delete an entry when its issue is fixed.
+`--param` takes comma-separated `KEY=VALUE` pairs; a comma not followed by `KEY=` is part of the value. All knobs are listed in `budget.py`. `FOREIGN_WRITER_FUZZ_KNOWN_ISSUES=1` opens the gates of `known_issues.py`, which otherwise steer around open ClickHouse bugs so that the nightly run reports only new ones; delete an entry when its issue is fixed.
 
 ## Bugs found by the fuzzer
 
