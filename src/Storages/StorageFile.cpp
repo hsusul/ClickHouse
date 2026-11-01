@@ -735,6 +735,13 @@ void writeQueryConditionCacheEntry(
             table_uuid, cache_file_key, condition_hash, condition, unmatched_ranges, total_row_groups, /*has_final_mark=*/false);
 }
 
+std::unique_ptr<ReadBuffer> wrapReadBufferWithCompression(std::unique_ptr<ReadBuffer> nested_buffer, CompressionMethod method, const ContextPtr & context)
+{
+    const auto & file_settings = context->getSettingsRef();
+    int zstd_window_log_max = static_cast<int>(file_settings[Setting::zstd_window_log_max]);
+    return wrapReadBufferWithCompressionMethod(std::move(nested_buffer), method, zstd_window_log_max, file_settings[Setting::snappy_mode]);
+}
+
 std::unique_ptr<ReadBuffer> createReadBuffer(
     const String & current_path,
     const struct stat & file_stat,
@@ -750,10 +757,34 @@ std::unique_ptr<ReadBuffer> createReadBuffer(
         method = chooseCompressionMethod(current_path, compression_method);
 
     std::unique_ptr<ReadBuffer> nested_buffer = selectReadBuffer(current_path, use_table_fd, table_fd, file_stat, context);
+    return wrapReadBufferWithCompression(std::move(nested_buffer), method, context);
+}
 
-    const auto & file_settings = context->getSettingsRef();
-    int zstd_window_log_max = static_cast<int>(file_settings[Setting::zstd_window_log_max]);
-    return wrapReadBufferWithCompressionMethod(std::move(nested_buffer), method, zstd_window_log_max, file_settings[Setting::snappy_mode]);
+/// Makes `read_buf`, which reads a file inside an archive, decompress it by `method`, like `createReadBuffer` does
+/// for a plain file. The archive reader needs its own buffer back to move to the next file (see `IArchiveReader::nextFile`),
+/// so that buffer is kept in `archive_entry_buf` and the decompressing buffer only references it.
+void decompressArchiveEntryReadBuffer(
+    std::unique_ptr<ReadBuffer> & read_buf,
+    std::unique_ptr<ReadBuffer> & archive_entry_buf,
+    CompressionMethod method,
+    const ContextPtr & context)
+{
+    archive_entry_buf.reset();
+    if (!read_buf || method == CompressionMethod::None)
+        return;
+
+    archive_entry_buf = std::move(read_buf);
+    read_buf = wrapReadBufferWithCompression(wrapReadBufferReference(*archive_entry_buf), method, context);
+}
+
+/// Returns the archive reader's own buffer for `read_buf` made by `decompressArchiveEntryReadBuffer`.
+std::unique_ptr<ReadBuffer> takeArchiveEntryReadBuffer(std::unique_ptr<ReadBuffer> read_buf, std::unique_ptr<ReadBuffer> & archive_entry_buf)
+{
+    if (!archive_entry_buf)
+        return read_buf;
+
+    read_buf.reset();
+    return std::move(archive_entry_buf);
 }
 
 }
@@ -946,11 +977,13 @@ namespace
         ReadBufferFromArchiveIterator(
             const StorageFile::ArchiveInfo & archive_info_,
             std::optional<String> format_,
+            const String & compression_method_,
             const std::optional<FormatSettings> & format_settings_,
             const ContextPtr & context_)
             : WithContext(context_)
             , archive_info(archive_info_)
             , format(std::move(format_))
+            , compression_method(compression_method_)
             , format_settings(format_settings_)
         {
         }
@@ -1030,6 +1063,9 @@ namespace
 
                     if (auto cached_schema = tryGetSchemaFromCache(archive, last_read_file_cache_key))
                         return {nullptr, cached_schema, format};
+
+                    decompressArchiveEntryReadBuffer(
+                        read_buf, archive_entry_read_buffer, chooseCompressionMethod(archive_info.path_in_archive, compression_method), getContext());
                 }
                 else
                 {
@@ -1091,7 +1127,9 @@ namespace
                         return {nullptr, cached_schema, format};
                     }
 
+                    auto method = chooseCompressionMethod(*filename, compression_method);
                     read_buf = archive_reader->readFile(std::move(file_enumerator));
+                    decompressArchiveEntryReadBuffer(read_buf, archive_entry_read_buffer, method, getContext());
                 }
 
                 break;
@@ -1103,7 +1141,7 @@ namespace
         void setPreviousReadBuffer(std::unique_ptr<ReadBuffer> buffer) override
         {
             if (buffer)
-                last_read_buffer = std::move(buffer);
+                last_read_buffer = takeArchiveEntryReadBuffer(std::move(buffer), archive_entry_read_buffer);
         }
 
         void setNumRowsToLastFile(size_t num_rows) override
@@ -1146,7 +1184,10 @@ namespace
                 chassert(current_archive_index > 0 && current_archive_index <= archive_info.paths_to_archives.size());
                 const auto & archive = archive_info.paths_to_archives[current_archive_index - 1];
                 auto archive_reader = createArchiveReader(archive);
-                return archive_reader->readFile(archive_info.path_in_archive, false);
+                std::unique_ptr<ReadBuffer> read_buf = archive_reader->readFile(archive_info.path_in_archive, false);
+                decompressArchiveEntryReadBuffer(
+                    read_buf, archive_entry_read_buffer, chooseCompressionMethod(archive_info.path_in_archive, compression_method), getContext());
+                return read_buf;
             }
 
             chassert(current_archive_index >= 0 && current_archive_index < archive_info.paths_to_archives.size());
@@ -1154,7 +1195,10 @@ namespace
             auto archive_reader = createArchiveReader(archive);
             chassert(last_read_buffer);
             file_enumerator = archive_reader->currentFile(std::move(last_read_buffer));
-            return archive_reader->readFile(std::move(file_enumerator));
+            auto method = chooseCompressionMethod(file_enumerator->getFileName(), compression_method);
+            std::unique_ptr<ReadBuffer> read_buf = archive_reader->readFile(std::move(file_enumerator));
+            decompressArchiveEntryReadBuffer(read_buf, archive_entry_read_buffer, method, getContext());
+            return read_buf;
         }
 
     private:
@@ -1212,8 +1256,11 @@ namespace
         std::unique_ptr<IArchiveReader::FileEnumerator> file_enumerator;
         ArchiveEntryPositions entry_positions;
         std::unique_ptr<ReadBuffer> last_read_buffer;
+        /// See `decompressArchiveEntryReadBuffer`.
+        std::unique_ptr<ReadBuffer> archive_entry_read_buffer;
 
         std::optional<String> format;
+        String compression_method;
         const std::optional<FormatSettings> & format_settings;
         std::vector<std::string> paths_for_schema_cache;
     };
@@ -1339,7 +1386,7 @@ std::pair<ColumnsDescription, String> StorageFile::getTableStructureAndFormatFro
 
     if (archive_info)
     {
-        ReadBufferFromArchiveIterator read_buffer_iterator(*archive_info, format, format_settings, context);
+        ReadBufferFromArchiveIterator read_buffer_iterator(*archive_info, format, compression_method, format_settings, context);
         if (format)
             return {readSchemaFromFormat(*format, format_settings, read_buffer_iterator, context), *format};
 
@@ -1949,6 +1996,9 @@ Chunk StorageFileSource::generate()
 
                             if (auto progress_callback = getContext()->getFileProgressCallback())
                                 progress_callback(FileProgress(0, tryGetFileSizeFromReadBuffer(*read_buf).value_or(0)));
+
+                            decompressArchiveEntryReadBuffer(
+                                read_buf, archive_entry_read_buf, chooseCompressionMethod(*filename_override, storage->compression_method), getContext());
                         }
                     }
                     else
@@ -2019,6 +2069,9 @@ Chunk StorageFileSource::generate()
                             read_buf = archive_reader->readFile(std::move(file_enumerator));
                             if (auto progress_callback = getContext()->getFileProgressCallback())
                                 progress_callback(FileProgress(0, tryGetFileSizeFromReadBuffer(*read_buf).value_or(0)));
+
+                            decompressArchiveEntryReadBuffer(
+                                read_buf, archive_entry_read_buf, chooseCompressionMethod(*filename_override, storage->compression_method), getContext());
                         }
                     }
                 }
@@ -2532,11 +2585,12 @@ Chunk StorageFileSource::generate()
             }
             else
             {
-                file_enumerator = archive_reader->nextFile(std::move(read_buf));
+                file_enumerator = archive_reader->nextFile(takeArchiveEntryReadBuffer(std::move(read_buf), archive_entry_read_buf));
             }
         }
 
         read_buf.reset();
+        archive_entry_read_buf.reset();
     }
 
     return {};
