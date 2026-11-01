@@ -698,7 +698,7 @@ This setting can be modified at runtime and will take effect immediately.
 )", 0) \
     DECLARE(UInt64, text_index_tokens_cache_max_entries, DEFAULT_TEXT_INDEX_TOKENS_CACHE_MAX_ENTRIES, "Size of cache for text index tokens in entries. Zero means disabled.", 0) \
     DECLARE(Double, text_index_tokens_cache_size_ratio, DEFAULT_TEXT_INDEX_TOKENS_CACHE_SIZE_RATIO, "The size of the protected queue (in case of SLRU policy) in the text index tokens cache relative to the cache's total size.", 0) \
-    DECLARE(String, text_index_header_cache_policy, DEFAULT_TEXT_INDEX_HEADER_CACHE_POLICY, "Cache eviction policy for the text index header cache. Possible values: `LRU`, `SLRU`, `SIEVE`. See [`text_index_header_cache_size`](#text_index_header_cache_size) for cache capacity.", 0) \
+    DECLARE(String, text_index_header_cache_policy, DEFAULT_TEXT_INDEX_HEADER_CACHE_POLICY, "Cache eviction policy for the text index header cache. Possible values: `LRU`, `SLRU`, `SIEVE`. See [`text_index_header_cache_size`](#text_index_header_cache_size) and [`text_index_header_cache_max_entries`](#text_index_header_cache_max_entries) for cache capacity and [`text_index_header_cache_size_ratio`](#text_index_header_cache_size_ratio) for the protected queue size in SLRU policy.", 0) \
     DECLARE(UInt64, text_index_header_cache_size, DEFAULT_TEXT_INDEX_HEADER_CACHE_MAX_SIZE, R"(Size of cache for text index headers. Zero means disabled.
 
 <Note>
@@ -833,7 +833,7 @@ This setting can be modified at runtime and will take effect immediately.
 </Note>
 )", 0) \
     DECLARE(Double, query_condition_cache_size_ratio, DEFAULT_QUERY_CONDITION_CACHE_SIZE_RATIO, "The size of the protected queue (in case of SLRU policy) in the query condition cache relative to the cache's total size.", 0) \
-    DECLARE(String, encryption_header_cache_policy, DEFAULT_ENCRYPTION_HEADER_CACHE_POLICY, "Cache eviction policy for the encryption header cache used by the ReaderExecutor read path. Possible values: `LRU`, `SLRU`, `SIEVE`. See [`encryption_header_cache_size`](#encryption_header_cache_size) for cache capacity.", 0) \
+    DECLARE(String, encryption_header_cache_policy, DEFAULT_ENCRYPTION_HEADER_CACHE_POLICY, "Cache eviction policy for the encryption header cache used by the ReaderExecutor read path. Possible values: `LRU`, `SLRU`, `SIEVE`. See [`encryption_header_cache_size`](#encryption_header_cache_size) for cache capacity and [`encryption_header_cache_size_ratio`](#encryption_header_cache_size_ratio) for the protected queue size in SLRU policy.", 0) \
     DECLARE(UInt64, encryption_header_cache_size, DEFAULT_ENCRYPTION_HEADER_CACHE_MAX_SIZE, R"(
 Maximum size of the cache of encryption headers read from encrypted files. Used only by the experimental ReaderExecutor read path.
 <Note>
