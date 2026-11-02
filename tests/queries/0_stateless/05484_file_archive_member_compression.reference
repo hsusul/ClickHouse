@@ -26,6 +26,13 @@ gz.data	2
 not compressed
 5
 5
+count cache is separated by member compression
+2
+1
+1
+2
+2
+1
 zip
 explicit gzip
 1
@@ -54,3 +61,10 @@ gz.data	2
 not compressed
 5
 5
+count cache is separated by member compression
+2
+1
+1
+2
+2
+1

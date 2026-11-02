@@ -787,6 +787,16 @@ std::unique_ptr<ReadBuffer> takeArchiveEntryReadBuffer(std::unique_ptr<ReadBuffe
     return std::move(archive_entry_buf);
 }
 
+/// The schema and row-count cache key of an archive entry. The same entry gives different rows under
+/// different member compression methods, so the effective method is part of the key.
+std::string getArchiveEntryCacheKey(const std::string & path, std::optional<size_t> position, CompressionMethod method)
+{
+    auto method_name = toContentEncodingName(method);
+    if (method_name.empty())
+        method_name = "none";
+    return getArchiveEntryKey(fmt::format("{}#compression_method={}", path, method_name), position);
+}
+
 }
 
 namespace
@@ -996,7 +1006,11 @@ namespace
             {
                 for (const auto & archive : archive_info.paths_to_archives)
                 {
-                    if (auto cached_schema = tryGetSchemaFromCache(archive, fmt::format("{}::{}", archive, archive_info.path_in_archive)))
+                    auto cache_key = getArchiveEntryCacheKey(
+                        fmt::format("{}::{}", archive, archive_info.path_in_archive),
+                        std::nullopt,
+                        chooseCompressionMethod(archive_info.path_in_archive, compression_method));
+                    if (auto cached_schema = tryGetSchemaFromCache(archive, cache_key))
                         return {nullptr, cached_schema, format};
                 }
             }
@@ -1058,14 +1072,14 @@ namespace
                         continue;
 
                     last_read_file_path = paths_for_schema_cache.emplace_back(fmt::format("{}::{}", archive_reader->getPath(), archive_info.path_in_archive));
-                    last_read_file_cache_key = getArchiveEntryKey(last_read_file_path, std::nullopt);
+                    auto method = chooseCompressionMethod(archive_info.path_in_archive, compression_method);
+                    last_read_file_cache_key = getArchiveEntryCacheKey(last_read_file_path, std::nullopt, method);
                     is_first = false;
 
                     if (auto cached_schema = tryGetSchemaFromCache(archive, last_read_file_cache_key))
                         return {nullptr, cached_schema, format};
 
-                    decompressArchiveEntryReadBuffer(
-                        read_buf, archive_entry_read_buffer, chooseCompressionMethod(archive_info.path_in_archive, compression_method), getContext());
+                    decompressArchiveEntryReadBuffer(read_buf, archive_entry_read_buffer, method, getContext());
                 }
                 else
                 {
@@ -1106,7 +1120,8 @@ namespace
                     }
 
                     last_read_file_path = paths_for_schema_cache.emplace_back(fmt::format("{}::{}", archive_reader->getPath(), *filename));
-                    last_read_file_cache_key = getArchiveEntryKey(last_read_file_path, entry_position);
+                    auto method = chooseCompressionMethod(*filename, compression_method);
+                    last_read_file_cache_key = getArchiveEntryCacheKey(last_read_file_path, entry_position, method);
                     is_first = false;
 
                     /// If format is unknown we can try to determine it by the file name.
@@ -1127,7 +1142,6 @@ namespace
                         return {nullptr, cached_schema, format};
                     }
 
-                    auto method = chooseCompressionMethod(*filename, compression_method);
                     read_buf = archive_reader->readFile(std::move(file_enumerator));
                     decompressArchiveEntryReadBuffer(read_buf, archive_entry_read_buffer, method, getContext());
                 }
@@ -1976,7 +1990,8 @@ Chunk StorageFileSource::generate()
                         filename_override = files_iterator->getFileNameInArchive();
 
                         current_path = fmt::format("{}::{}", archive_reader->getPath(), *filename_override);
-                        current_archive_entry_cache_key = getArchiveEntryKey(current_path, std::nullopt);
+                        current_archive_entry_cache_key = getArchiveEntryCacheKey(
+                            current_path, std::nullopt, chooseCompressionMethod(*filename_override, storage->compression_method));
                         if (need_only_count && tryGetCountFromCache(file_stat))
                             continue;
 
@@ -2053,7 +2068,8 @@ Chunk StorageFileSource::generate()
 
                         chassert(file_enumerator);
                         current_path = fmt::format("{}::{}", archive_reader->getPath(), *filename_override);
-                        current_archive_entry_cache_key = getArchiveEntryKey(current_path, entry_position);
+                        current_archive_entry_cache_key = getArchiveEntryCacheKey(
+                            current_path, entry_position, chooseCompressionMethod(*filename_override, storage->compression_method));
                         current_file_size = file_enumerator->getFileInfo().uncompressed_size;
                         current_file_last_modified = file_enumerator->getFileInfo().last_modified;
                         if (need_only_count && tryGetCountFromCache(current_archive_stat))
