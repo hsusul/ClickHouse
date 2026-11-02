@@ -1106,7 +1106,7 @@ private:
           */
 
         if (arguments[2].type->onlyNull())
-            return result_type->createColumnConstWithDefaultValue(input_rows_count);
+            return dictionary_get_func_impl.executeImpl(arguments, result_type, input_rows_count);
 
         auto dict_has_arguments = filterAttributeNameArgumentForDictHas(arguments);
         /// `dictHas` expects a key that is not `Nullable`. `NULL` keys are already `NULL` in the `dictGet` result below.
